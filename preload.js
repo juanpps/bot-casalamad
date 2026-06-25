@@ -19,4 +19,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Chat control
   pauseSender: (jid) => ipcRenderer.send('pause-sender', jid),
   resumeSender: (jid) => ipcRenderer.send('resume-sender', jid),
+
+  // Global bot control
+  pauseBot: () => ipcRenderer.send('pause-bot'),
+  resumeBot: () => ipcRenderer.send('resume-bot'),
+  shutdownBot: () => ipcRenderer.send('shutdown-bot'),
+
+  // Alerts
+  onAdvisorAlert: (cb) => ipcRenderer.on('advisor-alert', (_, data) => cb(data)),
 });

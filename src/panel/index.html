@@ -4,46 +4,110 @@
   <meta charset="UTF-8">
   <title>Casa LAMAD — Bot Panel</title>
   <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Cinzel:wght@400;600;700;900&family=Noto+Serif+SC:wght@500;700;900&family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <div class="header">
-    <div class="title">
-      <h2>Casa LAMAD — Panel de Pedidos</h2>
-    </div>
-    <div class="actions">
-      <button id="settingsBtn">⚙ Configuración</button>
-    </div>
-  </div>
-
-  <div class="main-content">
-    <div class="bot-status-panel">
-      <h3>Estado del Bot</h3>
-      <div id="botStatusText" class="status-badge connecting">Conectando...</div>
-      <div id="qrContainer" class="qr-container"></div>
-    </div>
-
-    <div class="orders-panel">
-      <h3>Pedidos Recientes</h3>
-      <div id="ordersList" class="orders-grid">
-        <div class="empty-state">No hay pedidos recientes.</div>
+  <div class="app-layout">
+    <!-- BARRA LATERAL -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-badge">
+          <!-- Puedes poner un img src="..." aquí si lo deseas -->
+          <div class="seal"><span>龍</span></div>
+        </div>
+        <h2 class="brand-title">CASA LAMAD</h2>
+        <p class="brand-subtitle">Panel Administrativo</p>
       </div>
-    </div>
+
+      <div class="sidebar-section">
+        <h3>Estado del Bot</h3>
+        <div id="botStatusText" class="status-badge connecting">Conectando...</div>
+        
+        <div class="bot-controls">
+          <button id="pauseBotBtn" class="control-btn outline">⏸ Pausar Bot</button>
+          <button id="resumeBotBtn" class="control-btn outline" style="display:none;">▶ Reanudar Bot</button>
+        </div>
+
+        <div id="qrContainer" class="qr-container"></div>
+      </div>
+
+      <div class="sidebar-section" style="margin-top: auto;">
+        <button id="settingsBtn" class="sidebar-btn">⚙ Configuración</button>
+        <button id="shutdownBtn" class="sidebar-btn danger">⏻ Apagar Bot</button>
+      </div>
+    </aside>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="main-content">
+      <header class="main-header">
+        <div class="header-title">
+          <h2>Gestión de Pedidos</h2>
+          <span class="date-badge" id="currentDateBadge">Hoy</span>
+        </div>
+        
+        <div class="active-chats-widget">
+          <span class="widget-label">Chats Activos:</span>
+          <div class="chat-avatars" id="activeChatsList">
+            <span class="empty-chats">Ninguno</span>
+          </div>
+        </div>
+      </header>
+      
+      <div class="orders-board">
+        <!-- Columna Domicilios -->
+        <div class="orders-column delivery">
+          <div class="column-header">
+            <div class="icon-wrap">🛵</div>
+            <h3>Domicilios</h3>
+            <span class="count-badge" id="countDelivery">0</span>
+          </div>
+          <div id="deliveryList" class="orders-list">
+            <div class="empty-state">No hay domicilios recientes.</div>
+          </div>
+        </div>
+
+        <!-- Columna Recoger -->
+        <div class="orders-column pickup">
+          <div class="column-header">
+            <div class="icon-wrap">🥡</div>
+            <h3>Recoger en Tienda</h3>
+            <span class="count-badge" id="countPickup">0</span>
+          </div>
+          <div id="pickupList" class="orders-list">
+            <div class="empty-state">No hay pedidos para recoger.</div>
+          </div>
+        </div>
+      </div>
+    </main>
   </div>
 
   <!-- Modal Configuración -->
   <div id="settingsModal" class="modal">
     <div class="modal-content">
       <span class="close">&times;</span>
-      <h2>Configuración</h2>
+      <h2>Configuración del Sistema</h2>
       <form id="settingsForm">
         <label>Supabase URL</label>
         <input type="text" id="supUrl" placeholder="https://xxx.supabase.co">
+        
         <label>Supabase Anon Key</label>
         <input type="password" id="supKey" placeholder="ey...">
-        <label>Claude API Key</label>
+        
+        <label>Claude API Key (Opcional)</label>
         <input type="password" id="claudeKey" placeholder="sk-ant-...">
-        <button type="submit">Guardar</button>
+        
+        <button type="submit" class="save-btn">Guardar Cambios</button>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal Alerta Asesor -->
+  <div id="advisorAlertModal" class="modal overlay-danger">
+    <div class="modal-content alert-content">
+      <span class="close-alert">&times;</span>
+      <h2>¡Atención Requerida! 🚨</h2>
+      <p id="advisorAlertText">Un cliente está solicitando hablar con un asesor.</p>
+      <button id="ackAdvisorBtn" class="save-btn">Enterado</button>
     </div>
   </div>
 

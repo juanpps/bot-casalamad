@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, Menu, Tray } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
-const { startWhatsAppBot, getWaClient, pauseSender, resumeSender } = require('./src/bot/whatsapp.service');
+const { startWhatsAppBot, getWaClient, pauseSender, resumeSender, setGlobalPause } = require('./src/bot/whatsapp.service');
 const { createClient } = require('@supabase/supabase-js');
 
 globalThis.WebSocket = require('ws');
@@ -66,7 +66,19 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => { app.isQuitting = true; });
+app.on('before-quit', async (e) => { 
+  app.isQuitting = true;
+  console.log('[MAIN] Ejecutando Graceful Shutdown...');
+  const wa = getWaClient();
+  if (wa) {
+    try {
+      await wa.destroy();
+      console.log('[MAIN] Cliente WhatsApp destruido correctamente.');
+    } catch (err) {
+      console.error('[MAIN] Error destruyendo cliente WhatsApp:', err);
+    }
+  }
+});
 
 // ── IPC: Estado inicial del bot ──────────────────────────────────────────────
 ipcMain.on('get-bot-state', (event) => {
@@ -147,3 +159,17 @@ ipcMain.handle('update-order-status', async (_, { id, status, waNumber, tracking
 // ── IPC: Control de chat (pausar/reanudar) ───────────────────────────────────
 ipcMain.on('pause-sender', (_, jid) => pauseSender(jid));
 ipcMain.on('resume-sender', (_, jid) => resumeSender(jid));
+
+ipcMain.on('pause-bot', () => setGlobalPause(true));
+ipcMain.on('resume-bot', () => setGlobalPause(false));
+
+ipcMain.on('shutdown-bot', async () => {
+  console.log('[MAIN] Apagado solicitado desde la UI.');
+  const wa = getWaClient();
+  if (wa) {
+    try {
+      await wa.destroy();
+    } catch (err) {}
+  }
+  app.quit();
+});
