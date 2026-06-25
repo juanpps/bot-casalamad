@@ -122,6 +122,23 @@ function parseCartMessage(text) {
   } catch { return null; }
 }
 
+// ── Anti-Ban & Typing Simulation ──────────────────────────────────────────────
+async function replyWithDelay(message, text) {
+  try {
+    const chat = await message.getChat();
+    // Enviar estado de escribiendo
+    await chat.sendStateTyping();
+    // Retraso dinámico: 30ms por carácter, con un mínimo de 1.5s y máximo de 4s
+    const delayMs = Math.min(Math.max(text.length * 30, 1500), 4000);
+    await new Promise(res => setTimeout(res, delayMs));
+    // Enviar mensaje
+    await message.reply(text);
+  } catch (err) {
+    // Fallback si falla el getChat o el typing state
+    await message.reply(text);
+  }
+}
+
 // ── Manejador de mensajes ─────────────────────────────────────────────────────
 async function handleMessage(client, message, emitToPanel) {
   const jid = message.from;
@@ -143,7 +160,7 @@ async function handleMessage(client, message, emitToPanel) {
 
     if (error || !pedido) {
       console.error('[BOT] Error Supabase:', error);
-      await message.reply('❌ Hubo un error al registrar tu pedido. Por favor intenta de nuevo o escríbenos directamente.');
+      await replyWithDelay(message, '❌ Hubo un error al registrar tu pedido. Por favor intenta de nuevo o escríbenos directamente.');
       return;
     }
 
@@ -151,7 +168,7 @@ async function handleMessage(client, message, emitToPanel) {
     setSession(jid, { status: 'DONE', data: {} });
     
     if (esFraude) {
-      await message.reply(
+      await replyWithDelay(message,
         `⚠️ *Tu pedido requiere revisión manual.*\n\n` +
         `Hemos detectado una inconsistencia en los precios. Un asesor revisará tu pedido en breve y se pondrá en contacto contigo.`
       );
@@ -159,7 +176,7 @@ async function handleMessage(client, message, emitToPanel) {
       pauseSender(jid);
       emitToPanel('advisor-alert', { waNumber: order.cliente_wa, msg: 'Inconsistencia de precios en pedido del carrito.' });
     } else {
-      await message.reply(
+      await replyWithDelay(message,
         `✅ *¡Pedido #${String(pedido.numero).padStart(3, '0')} confirmado!* 🥢\n\n` +
         `Hola ${order.cliente_nombre}, recibimos tu pedido con *${order.items.length} plato(s)*.\n\n` +
         `🔗 Sigue el estado en tiempo real:\n${trackingUrl}\n\n` +
@@ -175,7 +192,7 @@ async function handleMessage(client, message, emitToPanel) {
 
   if (sess.status === 'IDLE' || sess.status === 'DONE' || txt === 'hola' || txt === 'menu' || txt === 'menú' || txt === 'inicio') {
     setSession(jid, { status: 'MENU', data: {} });
-    await message.reply(
+    await replyWithDelay(message,
       `¡Hola! 👋 Bienvenido a *Casa LAMAD — Arroz al Wok* 🥢\n\n` +
       `¿En qué te podemos ayudar hoy?\n\n` +
       `*1️⃣* 🥢 Ver Menú y Hacer Pedido\n` +
@@ -190,28 +207,28 @@ async function handleMessage(client, message, emitToPanel) {
   if (sess.status === 'MENU') {
     if (txt === '1') {
       setSession(jid, { status: 'WAITING_ORDER' });
-      await message.reply(
+      await replyWithDelay(message,
         `¡Perfecto! 🍜 Entra al menú digital, arma tu pedido y al finalizar *envía el resumen directamente por aquí*:\n\n` +
         `🔗 https://casalamad.vercel.app/\n\n` +
         `_El bot lo registrará y te enviará el tracking al instante._`
       );
     } else if (txt === '2') {
-      await message.reply(`🔍 Para ver el estado de tu pedido, usa el enlace de tracking que te enviamos al confirmar.\n\nSi no lo tienes, escríbenos tu nombre y número de pedido.`);
+      await replyWithDelay(message, `🔍 Para ver el estado de tu pedido, usa el enlace de tracking que te enviamos al confirmar.\n\nSi no lo tienes, escríbenos tu nombre y número de pedido.`);
       setSession(jid, { status: 'IDLE' });
     } else if (txt === '3') {
-      await message.reply(
+      await replyWithDelay(message,
         `🕘 *Horario de Atención:*\n11:00 am – 10:00 pm (Lunes a Domingo)\n\n` +
         `📍 *Ubicación:*\nCra 24e #14-08 · Sector 25 Manzanares\n` +
         `🔗 https://maps.app.goo.gl/JERm3cEdqyYrPNAK7`
       );
       setSession(jid, { status: 'IDLE' });
     } else if (txt === '4') {
-      await message.reply(`👨‍🍳 ¡Claro! Un asesor tomará el control en breve. ¡Gracias por tu paciencia!`);
+      await replyWithDelay(message, `👨‍🍳 ¡Claro! Un asesor tomará el control en breve. ¡Gracias por tu paciencia!`);
       setSession(jid, { status: 'HUMAN' });
       pauseSender(jid);
       emitToPanel('advisor-alert', { waNumber: jid.replace('@c.us', ''), msg: 'El cliente solicitó atención de un asesor.' });
     } else {
-      await message.reply(`Por favor responde con un número del *1* al *4*. 😊`);
+      await replyWithDelay(message, `Por favor responde con un número del *1* al *4*. 😊`);
     }
     return;
   }
@@ -219,9 +236,9 @@ async function handleMessage(client, message, emitToPanel) {
   if (sess.status === 'WAITING_ORDER') {
     if (txt === 'menu' || txt === 'menú' || txt === 'inicio' || txt === 'hola') {
       setSession(jid, { status: 'IDLE' });
-      await message.reply(`¡Claro! Volvemos al inicio 😊`);
+      await replyWithDelay(message, `¡Claro! Volvemos al inicio 😊`);
     } else {
-      await message.reply(
+      await replyWithDelay(message,
         `⏳ Estoy esperando el resumen de tu pedido desde el menú.\n\n` +
         `🔗 https://casalamad.vercel.app/\n\n` +
         `Escribe *menú* para volver al inicio.`
@@ -231,7 +248,7 @@ async function handleMessage(client, message, emitToPanel) {
   }
 
   // Catch-all
-  await message.reply(`¡Hola! 😊 Escribe *hola* o *menú* para ver las opciones.`);
+  await replyWithDelay(message, `¡Hola! 😊 Escribe *hola* o *menú* para ver las opciones.`);
 }
 
 // ── Servicio principal ────────────────────────────────────────────────────────
@@ -293,7 +310,7 @@ function startWhatsAppBot(emitToPanel) {
 
     try {
       if (globalPause && !pausedSenders.has(message.from) && !message.fromMe && message.from.endsWith('@c.us')) {
-        await message.reply("En este momento no estamos tomando pedidos automáticos, un asesor te atenderá en breve.");
+        await replyWithDelay(message, "En este momento no estamos tomando pedidos automáticos, un asesor te atenderá en breve.");
         pausedSenders.add(message.from);
         return;
       }
