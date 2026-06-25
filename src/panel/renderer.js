@@ -246,6 +246,31 @@ window.electronAPI.onAdvisorAlert((data) => {
   playAlert();
 });
 
+// ── Chats Activos (Pausados por Asesor) ───────────────────────────────────────
+window.electronAPI.onActiveChats((chats) => {
+  const container = document.getElementById('activeChatsList');
+  if (!container) return;
+  
+  if (chats.length === 0) {
+    container.innerHTML = '<span class="empty-chats">Ninguno</span>';
+    return;
+  }
+  
+  container.innerHTML = chats.map(phone => 
+    `<div class="paused-chat-tag">
+       ${phone}
+       <button data-resume="${phone}" class="resume-chat-btn" title="Reanudar Bot">▶</button>
+     </div>`
+  ).join('');
+
+  container.querySelectorAll('.resume-chat-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const wa = e.target.dataset.resume + '@c.us';
+      window.electronAPI.resumeSender(wa);
+    });
+  });
+});
+
 document.querySelector('.close-alert')?.addEventListener('click', () => {
   document.getElementById('advisorAlertModal').style.display = 'none';
 });

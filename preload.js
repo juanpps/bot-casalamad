@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resumeBot: () => ipcRenderer.send('resume-bot'),
   shutdownBot: () => ipcRenderer.send('shutdown-bot'),
 
-  // Alerts
+  // Alerts & Active Chats
   onAdvisorAlert: (cb) => ipcRenderer.on('advisor-alert', (_, data) => cb(data)),
+  onActiveChats: (cb) => ipcRenderer.on('active-chats', (_, data) => cb(data)),
 });

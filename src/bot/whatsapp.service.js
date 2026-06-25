@@ -13,7 +13,7 @@ const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12);
 
 // ── Estado en memoria ────────────────────────────────────────────────────────
 const sessions = new Map();   // jid -> { status, data }
-const pausedSenders = new Set(); // jids donde el humano tomó control
+const pausedSenders = new Map(); // jid -> { timer }
 
 function getSession(jid) {
   if (!sessions.has(jid)) sessions.set(jid, { status: 'IDLE', data: {} });
@@ -311,7 +311,7 @@ function startWhatsAppBot(emitToPanel) {
     try {
       if (globalPause && !pausedSenders.has(message.from) && !message.fromMe && message.from.endsWith('@c.us')) {
         await replyWithDelay(message, "En este momento no estamos tomando pedidos automáticos, un asesor te atenderá en breve.");
-        pausedSenders.add(message.from);
+        pauseSender(message.from);
         return;
       }
       await handleMessage(waClient, message, emitToPanel);
@@ -325,7 +325,7 @@ function startWhatsAppBot(emitToPanel) {
     if (!message.fromMe) return;
     const jid = message.to;
     if (jid.endsWith('@c.us') && !pausedSenders.has(jid)) {
-      pausedSenders.add(jid);
+      pauseSender(jid);
       console.log(`[BOT] Bot pausado para ${jid} (control manual)`);
     }
   });
@@ -337,8 +337,38 @@ function getWaClient() {
   return waClient;
 }
 
-function pauseSender(jid) { pausedSenders.add(jid); }
-function resumeSender(jid) { pausedSenders.delete(jid); }
+function emitActiveChats() {
+  if (emitter) {
+    const list = Array.from(pausedSenders.keys()).map(jid => jid.replace('@c.us', ''));
+    emitter('active-chats', list);
+  }
+}
+
+function pauseSender(jid) { 
+  if (pausedSenders.has(jid)) {
+    clearTimeout(pausedSenders.get(jid).timer);
+  }
+  
+  // Pausa por 30 minutos
+  const timer = setTimeout(() => {
+    resumeSender(jid);
+    if (waClient) {
+      waClient.sendMessage(jid, '🤖 _Hola nuevamente, el bot ha retomado el control automático de este chat._');
+    }
+  }, 1000 * 60 * 30);
+
+  pausedSenders.set(jid, { timer });
+  emitActiveChats();
+}
+
+function resumeSender(jid) { 
+  if (pausedSenders.has(jid)) {
+    clearTimeout(pausedSenders.get(jid).timer);
+    pausedSenders.delete(jid);
+  }
+  setSession(jid, { status: 'IDLE', data: {} });
+  emitActiveChats();
+}
 
 function setGlobalPause(isPaused) {
   globalPause = isPaused;

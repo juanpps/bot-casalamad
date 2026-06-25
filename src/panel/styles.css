@@ -266,6 +266,39 @@ body {
   font-style: italic;
 }
 
+.paused-chat-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(139, 0, 0, 0.6);
+  border: 1px solid #ff4d4d;
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 10px rgba(139, 0, 0, 0.4);
+}
+
+.resume-chat-btn {
+  background: var(--gold);
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  color: var(--crimson-dark);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
+}
+
+.resume-chat-btn:hover {
+  transform: scale(1.1);
+}
+
 /* ── ORDERS BOARD ───────────────────────────────────────── */
 .orders-board {
   display: flex;
