@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Casa LAMAD — Bot Panel</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="header">
+    <div class="title">
+      <h2>Casa LAMAD — Panel de Pedidos</h2>
+    </div>
+    <div class="actions">
+      <button id="settingsBtn">⚙ Configuración</button>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div class="bot-status-panel">
+      <h3>Estado del Bot</h3>
+      <div id="botStatusText" class="status-badge connecting">Conectando...</div>
+      <div id="qrContainer" class="qr-container"></div>
+    </div>
+
+    <div class="orders-panel">
+      <h3>Pedidos Recientes</h3>
+      <div id="ordersList" class="orders-grid">
+        <div class="empty-state">No hay pedidos recientes.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Configuración -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Configuración</h2>
+      <form id="settingsForm">
+        <label>Supabase URL</label>
+        <input type="text" id="supUrl" placeholder="https://xxx.supabase.co">
+        <label>Supabase Anon Key</label>
+        <input type="password" id="supKey" placeholder="ey...">
+        <label>Claude API Key</label>
+        <input type="password" id="claudeKey" placeholder="sk-ant-...">
+        <button type="submit">Guardar</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
