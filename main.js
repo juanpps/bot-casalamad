@@ -1,12 +1,20 @@
 const { app, BrowserWindow, ipcMain, Menu, Tray } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
+const AutoLaunch = require('auto-launch');
+const { autoUpdater } = require('electron-updater');
 const { startWhatsAppBot, getWaClient, pauseSender, resumeSender, setGlobalPause } = require('./src/bot/whatsapp.service');
 const { createClient } = require('@supabase/supabase-js');
 
 globalThis.WebSocket = require('ws');
 
 const store = new Store();
+
+const autoLauncher = new AutoLaunch({
+  name: 'Casa LAMAD Bot',
+  path: app.getPath('exe'),
+  isHidden: false
+});
 
 // ── Credenciales por defecto (del .env del menú digital) ────────────────────
 if (!store.get('settings.supabaseUrl')) {
@@ -57,6 +65,30 @@ app.whenReady().then(() => {
   // Iniciar bot de WhatsApp
   startWhatsAppBot(emit);
 
+  // ── Auto-Updater (solo en producción, no en desarrollo) ─────────────────────
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdatesAndNotify();
+
+    autoUpdater.on('update-available', (info) => {
+      console.log(`[UPDATER] Nueva versión disponible: ${info.version}`);
+      emit('update-available', { version: info.version });
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log(`[UPDATER] Versión ${info.version} descargada. Se instalará al cerrar.`);
+      emit('update-downloaded', { version: info.version });
+    });
+
+    autoUpdater.on('error', (err) => {
+      console.error('[UPDATER] Error:', err.message);
+    });
+
+    // IPC: instalar update ahora (reiniciar app)
+    ipcMain.on('install-update', () => {
+      autoUpdater.quitAndInstall();
+    });
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -88,11 +120,30 @@ ipcMain.on('get-bot-state', (event) => {
 
 // ── IPC: Configuración ───────────────────────────────────────────────────────
 ipcMain.on('get-settings', (event) => {
-  event.sender.send('settings-loaded', store.get('settings') || {});
+  const settings = store.get('settings') || {};
+  // Adjuntar estado real del auto-inicio
+  autoLauncher.isEnabled().then(enabled => {
+    settings.autoLaunch = enabled;
+    event.sender.send('settings-loaded', settings);
+  }).catch(() => {
+    event.sender.send('settings-loaded', settings);
+  });
 });
 
 ipcMain.on('save-settings', (event, settings) => {
-  store.set('settings', settings);
+  // Separar el flag de auto-inicio antes de guardar
+  const { autoLaunch, ...rest } = settings;
+  store.set('settings', rest);
+
+  // Aplicar auto-inicio al sistema operativo
+  if (autoLaunch !== undefined) {
+    if (autoLaunch) {
+      autoLauncher.enable().catch(e => console.error('[AUTO-LAUNCH] Error activando:', e));
+    } else {
+      autoLauncher.disable().catch(e => console.error('[AUTO-LAUNCH] Error desactivando:', e));
+    }
+  }
+
   event.sender.send('settings-saved', true);
 });
 
@@ -172,4 +223,52 @@ ipcMain.on('shutdown-bot', async () => {
     } catch (err) {}
   }
   app.quit();
+});
+
+// ── IPC: Archivar historial ──────────────────────────────────────────────────
+const fs = require('fs');
+
+ipcMain.handle('archive-history', async () => {
+  const cfg = store.get('settings') || {};
+  const supabase = createClient(
+    cfg.supabaseUrl || 'https://bwdtnlfcdanpusocmvux.supabase.co',
+    cfg.supabaseKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3ZHRubGZjZGFucHVzb2NtdnV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2NDk1ODYsImV4cCI6MjA5NzIyNTU4Nn0.dIQYr1av-4_NqETqJwBNrwTN3pFNJhDgYiSSa83ltSg',
+    { auth: { persistSession: false }, global: { WebSocket: require('ws') } }
+  );
+
+  const today = new Date().toISOString().split('T')[0];
+  
+  const { data, error } = await supabase
+    .from('pedidos')
+    .select('*')
+    .lt('created_at', today);
+
+  if (error) {
+    console.error('[MAIN] Error buscando historial:', error);
+    return false;
+  }
+
+  if (!data || data.length === 0) return true;
+
+  const archivePath = path.join(app.getPath('userData'), 'historial_archivado.json');
+  let existing = [];
+  if (fs.existsSync(archivePath)) {
+    try { existing = JSON.parse(fs.readFileSync(archivePath, 'utf8')); } catch(e){}
+  }
+
+  const newArchive = [...existing, ...data];
+  fs.writeFileSync(archivePath, JSON.stringify(newArchive, null, 2));
+
+  const ids = data.map(d => d.id);
+  const { error: delErr } = await supabase
+    .from('pedidos')
+    .delete()
+    .in('id', ids);
+
+  if (delErr) {
+    console.error('[MAIN] Error borrando de supabase:', delErr);
+    return false;
+  }
+
+  return true;
 });

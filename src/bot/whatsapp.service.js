@@ -69,10 +69,13 @@ async function crearPedido(pedidoData) {
     .select('*', { count: 'exact', head: true })
     .gte('created_at', hoy);
 
+  // Separar solo los campos que NO existen como columnas en Supabase
+  const { notas, ...pedidoInsert } = pedidoData;
+
   const { data, error } = await supabase
     .from('pedidos')
     .insert({
-      ...pedidoData,
+      ...pedidoInsert,
       numero: (count || 0) + 1,
       tracking_token: token,
       tracking_url: trackingUrl,
@@ -83,7 +86,10 @@ async function crearPedido(pedidoData) {
     .select()
     .single();
 
-  return { pedido: data, trackingUrl, error, esFraude };
+  // Adjuntar notas al objeto retornado para mostrarlas en el panel (no se persisten en BD)
+  const pedido = data ? { ...data, notas } : null;
+
+  return { pedido, trackingUrl, error, esFraude };
 }
 
 // ── Parser de pedidos del menú digital ───────────────────────────────────────
@@ -95,31 +101,43 @@ function parseCartMessage(text) {
 
   try {
     const lines = text.split('\n');
-    let nombre = 'Cliente', tipo_entrega = 'recogida', direccion = '', total = 0;
+    let nombre = 'Cliente', tipo_entrega = 'recogida', direccion = '', total = 0, notas = '';
     const items = [];
     let inItems = false;
 
     for (const line of lines) {
-      const l = line.replace(/[*_]/g, '').trim();
-      if (/^Nombre:/i.test(l)) nombre = l.replace(/^Nombre:\s*/i, '');
-      if (/Modalidad:|Entrega:/i.test(l)) tipo_entrega = l.toLowerCase().includes('domicilio') ? 'domicilio' : 'recogida';
-      if (/Direcci.n/i.test(l) && l.includes(':')) direccion = l.split(':').slice(1).join(':').trim();
-      if (/TOTAL|Total/i.test(l)) {
+      // Limpiar markdown Y emojis/caracteres especiales al inicio
+      const l = line.replace(/[*_]/g, '').replace(/^[\s\u{1F000}-\u{1FFFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}━•\s]+/u, '').trim();
+      if (!l) continue;
+
+      if (/^Nombre:/i.test(l))    nombre = l.replace(/^Nombre:\s*/i, '').trim();
+      if (/^Tel[eé]fono:/i.test(l)) {/* ignorar, ya tenemos el jid */}
+      if (/^Modalidad:/i.test(l)) tipo_entrega = l.toLowerCase().includes('domicilio') ? 'domicilio' : 'recogida';
+      if (/^Direcci[oó]n/i.test(l) && l.includes(':')) direccion = l.split(':').slice(1).join(':').trim();
+      if (/^Notas?:/i.test(l))    notas = l.replace(/^Notas?:\s*/i, '').trim();
+
+      if (/^TOTAL:/i.test(l) || l.toUpperCase().startsWith('TOTAL')) {
         const m = l.replace(/\./g, '').replace(/,/g, '').match(/\$?\s*(\d+)/);
         if (m) total = parseInt(m[1]);
       }
-      if (/Detalle|detalle|platos/i.test(l)) { inItems = true; continue; }
-      if (inItems && l.includes('•')) {
-        const cantM = l.match(/[×x×]\s*(\d+)/i) || l.match(/(\d+)\s*[×x×]/i);
+
+      if (/Detalle del pedido|platos/i.test(l)) { inItems = true; continue; }
+      if (/^Pedido generado/i.test(l)) { inItems = false; continue; }
+
+      if (inItems && line.includes('•')) {
+        const raw = line.replace(/[*_]/g, '');
+        const cantM = raw.match(/[×x×]\s*(\d+)/i) || raw.match(/(\d+)\s*[×x×]/i);
         const cantidad = cantM ? parseInt(cantM[1]) : 1;
-        const nombreItem = l.split('•')[1]?.split(/[×x×]/i)[0]?.split('→')[0]?.split('$')[0]?.trim() || 'Plato';
-        const priceM = l.replace(/\./g, '').match(/[→$]\s*(\d+)/);
+        const nombreItem = raw.split('•')[1]?.split(/[×x×]/i)[0]?.split('→')[0]?.split('(')[0]?.trim() || 'Plato';
+        const priceM = raw.replace(/\./g, '').match(/→\s*\$?\s*(\d+)/);
         const subtotal = priceM ? parseInt(priceM[1]) : 0;
-        items.push({ nombre: nombreItem, cantidad, precio_unitario: Math.round(subtotal / Math.max(cantidad, 1)), subtotal });
+        if (nombreItem && subtotal > 0) {
+          items.push({ nombre: nombreItem.trim(), cantidad, precio_unitario: Math.round(subtotal / Math.max(cantidad, 1)), subtotal });
+        }
       }
     }
-    return items.length > 0 ? { cliente_nombre: nombre, tipo_entrega, direccion, items, subtotal: total, total } : null;
-  } catch { return null; }
+    return items.length > 0 ? { cliente_nombre: nombre, tipo_entrega, direccion, items, subtotal: total, total, notas } : null;
+  } catch (e) { console.error('[PARSER]', e); return null; }
 }
 
 // ── Anti-Ban & Typing Simulation ──────────────────────────────────────────────
@@ -142,6 +160,11 @@ async function replyWithDelay(message, text) {
 // ── Manejador de mensajes ─────────────────────────────────────────────────────
 async function handleMessage(client, message, emitToPanel) {
   const jid = message.from;
+  let waNumber = jid.replace(/@.*/, '');
+  try {
+    const contact = await message.getContact();
+    if (contact && contact.number) waNumber = contact.number;
+  } catch (e) {}
 
   // Ignorar grupos y mensajes propios
   if (message.fromMe || jid.endsWith('@g.us') || jid.endsWith('@broadcast')) return;
@@ -155,7 +178,7 @@ async function handleMessage(client, message, emitToPanel) {
   // 1. Detectar mensaje de pedido del carrito
   const order = parseCartMessage(text);
   if (order) {
-    order.cliente_wa = jid.replace('@c.us', '');
+    order.cliente_wa = waNumber;
     const { pedido, trackingUrl, error, esFraude } = await crearPedido(order);
 
     if (error || !pedido) {
@@ -173,8 +196,8 @@ async function handleMessage(client, message, emitToPanel) {
         `Hemos detectado una inconsistencia en los precios. Un asesor revisará tu pedido en breve y se pondrá en contacto contigo.`
       );
       // Pausar y alertar asesor
-      pauseSender(jid);
-      emitToPanel('advisor-alert', { waNumber: order.cliente_wa, msg: 'Inconsistencia de precios en pedido del carrito.' });
+      pauseSender(jid, waNumber);
+      emitToPanel('advisor-alert', { waNumber: waNumber, msg: 'Inconsistencia de precios en pedido del carrito.' });
     } else {
       await replyWithDelay(message,
         `✅ *¡Pedido #${String(pedido.numero).padStart(3, '0')} confirmado!* 🥢\n\n` +
@@ -225,8 +248,8 @@ async function handleMessage(client, message, emitToPanel) {
     } else if (txt === '4') {
       await replyWithDelay(message, `👨‍🍳 ¡Claro! Un asesor tomará el control en breve. ¡Gracias por tu paciencia!`);
       setSession(jid, { status: 'HUMAN' });
-      pauseSender(jid);
-      emitToPanel('advisor-alert', { waNumber: jid.replace('@c.us', ''), msg: 'El cliente solicitó atención de un asesor.' });
+      pauseSender(jid, waNumber);
+      emitToPanel('advisor-alert', { waNumber: waNumber, msg: 'El cliente solicitó atención de un asesor.' });
     } else {
       await replyWithDelay(message, `Por favor responde con un número del *1* al *4*. 😊`);
     }
@@ -339,16 +362,19 @@ function getWaClient() {
 
 function emitActiveChats() {
   if (emitter) {
-    const list = Array.from(pausedSenders.keys()).map(jid => jid.replace('@c.us', ''));
+    const list = Array.from(pausedSenders.values()).map(data => data.waNumber);
     emitter('active-chats', list);
   }
 }
 
-function pauseSender(jid) { 
+function pauseSender(jid, waNumber = null) { 
   if (pausedSenders.has(jid)) {
     clearTimeout(pausedSenders.get(jid).timer);
+    if (!waNumber) waNumber = pausedSenders.get(jid).waNumber;
   }
   
+  if (!waNumber) waNumber = jid.replace(/@.*/, '');
+
   // Pausa por 30 minutos
   const timer = setTimeout(() => {
     resumeSender(jid);
@@ -357,7 +383,7 @@ function pauseSender(jid) {
     }
   }, 1000 * 60 * 30);
 
-  pausedSenders.set(jid, { timer });
+  pausedSenders.set(jid, { timer, waNumber });
   emitActiveChats();
 }
 

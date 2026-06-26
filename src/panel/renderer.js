@@ -123,12 +123,13 @@ function renderOrders() {
           <div class="order-header">
             <div class="order-client">
               <strong>#${String(order.numero || '?').padStart(3, '0')} — ${order.cliente_nombre}</strong>
-              <span>📱 ${order.cliente_wa}</span>
+              <span>📱 ${(order.cliente_wa || '').replace(/@.*/, '')}</span>
             </div>
             <span class="order-status ${estadoClase}">${estadoLabel}</span>
           </div>
           <div class="order-details">
             ${order.direccion ? `<p>📍 <i>${order.direccion}</i></p>` : ''}
+            ${order.notas ? `<p class="order-notes" style="color: #f1c40f; font-size: 11px; margin-top: 4px;">📝 <i>Nota: ${order.notas}</i></p>` : ''}
             <div style="margin-top: 10px;">${itemsHtml}</div>
           </div>
           <div class="order-total">
@@ -279,6 +280,19 @@ document.getElementById('ackAdvisorBtn')?.addEventListener('click', () => {
   document.getElementById('advisorAlertModal').style.display = 'none';
 });
 
+// ── Archivar Historial ────────────────────────────────────────────────────────
+document.getElementById('archiveBtn')?.addEventListener('click', async () => {
+  if (confirm('¿Estás seguro de que deseas archivar todos los pedidos anteriores a hoy?\nEsto los guardará localmente y los eliminará de la base de datos para ahorrar espacio.')) {
+    const success = await window.electronAPI.archiveHistory();
+    if (success) {
+      alert('✅ Historial archivado correctamente.\nLos pedidos se guardaron en la carpeta del sistema y se limpiaron de la nube.');
+      loadOrders();
+    } else {
+      alert('❌ Hubo un error al archivar el historial. Revisa los logs.');
+    }
+  }
+});
+
 // ── Configuración ─────────────────────────────────────────────────────────────
 configBtn?.addEventListener('click', () => {
   window.electronAPI.getSettings();
@@ -298,16 +312,23 @@ window.electronAPI.onSettingsLoaded((settings) => {
     document.getElementById('supUrl').value = settings.supabaseUrl || '';
     document.getElementById('supKey').value = settings.supabaseKey || '';
   }
+  const toggle = document.getElementById('autoLaunchToggle');
+  if (toggle) toggle.checked = !!settings.autoLaunch;
 });
 
 configForm?.addEventListener('submit', (e) => {
   e.preventDefault();
+  const autoLaunch = document.getElementById('autoLaunchToggle')?.checked ?? false;
   window.electronAPI.saveSettings({
     supabaseUrl: document.getElementById('supUrl').value.trim(),
     supabaseKey: document.getElementById('supKey').value.trim(),
+    autoLaunch,
   });
   configModal.style.display = 'none';
-  alert('✅ Configuración guardada. Reinicia el bot para aplicar los cambios.');
+  const msg = autoLaunch 
+    ? '✅ Configuración guardada.\n🚀 El bot se iniciará automáticamente con Windows.' 
+    : '✅ Configuración guardada.\n⏹ Auto-inicio desactivado.';
+  alert(msg);
 });
 
 // ── Iniciar ───────────────────────────────────────────────────────────────────
@@ -316,3 +337,34 @@ loadOrders();
 
 // Recargar pedidos cada 60 segundos
 setInterval(loadOrders, 60000);
+
+// ── Auto-Updater ──────────────────────────────────────────────────────────────
+window.electronAPI.onUpdateAvailable(({ version }) => {
+  // Notificación opcional de que se está descargando
+  console.log('Descargando actualización:', version);
+});
+
+window.electronAPI.onUpdateDownloaded(({ version }) => {
+  const div = document.createElement('div');
+  div.style.position = 'fixed';
+  div.style.bottom = '20px';
+  div.style.right = '20px';
+  div.style.background = 'var(--gold)';
+  div.style.color = '#000';
+  div.style.padding = '15px 20px';
+  div.style.borderRadius = '8px';
+  div.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
+  div.style.zIndex = '9999';
+  div.style.fontFamily = 'Barlow, sans-serif';
+  div.style.fontWeight = '600';
+  
+  div.innerHTML = `
+    <p style="margin-bottom: 10px;">¡Nueva versión ${version} instalada en segundo plano!</p>
+    <button id="restartUpdateBtn" style="background: #000; color: #fff; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">Reiniciar para aplicar</button>
+  `;
+  document.body.appendChild(div);
+
+  document.getElementById('restartUpdateBtn').addEventListener('click', () => {
+    window.electronAPI.installUpdate();
+  });
+});

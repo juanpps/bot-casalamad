@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Orders
   loadOrders: () => ipcRenderer.invoke('load-orders'),
+  archiveHistory: () => ipcRenderer.invoke('archive-history'),
   updateOrderStatus: (payload) => ipcRenderer.invoke('update-order-status', payload),
   onOrderNew: (cb) => ipcRenderer.on('order:new', (_, data) => cb(data)),
 
@@ -28,4 +29,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Alerts & Active Chats
   onAdvisorAlert: (cb) => ipcRenderer.on('advisor-alert', (_, data) => cb(data)),
   onActiveChats: (cb) => ipcRenderer.on('active-chats', (_, data) => cb(data)),
+
+  // Auto-updater
+  onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, data) => cb(data)),
+  onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_, data) => cb(data)),
+  installUpdate: () => ipcRenderer.send('install-update'),
 });

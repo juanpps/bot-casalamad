@@ -32,6 +32,7 @@
       </div>
 
       <div class="sidebar-section" style="margin-top: auto;">
+        <button id="archiveBtn" class="sidebar-btn" style="color: #4CAF50; border-color: rgba(76, 175, 80, 0.3);">📦 Archivar Historial</button>
         <button id="settingsBtn" class="sidebar-btn">⚙ Configuración</button>
         <button id="shutdownBtn" class="sidebar-btn danger">⏻ Apagar Bot</button>
       </div>
@@ -85,18 +86,35 @@
   <div id="settingsModal" class="modal">
     <div class="modal-content">
       <span class="close">&times;</span>
-      <h2>Configuración del Sistema</h2>
+      <h2>⚙ Configuración del Sistema</h2>
       <form id="settingsForm">
-        <label>Supabase URL</label>
-        <input type="text" id="supUrl" placeholder="https://xxx.supabase.co">
-        
-        <label>Supabase Anon Key</label>
-        <input type="password" id="supKey" placeholder="ey...">
-        
-        <label>Claude API Key (Opcional)</label>
-        <input type="password" id="claudeKey" placeholder="sk-ant-...">
-        
-        <button type="submit" class="save-btn">Guardar Cambios</button>
+
+        <!-- AUTO-INICIO -->
+        <div class="settings-section">
+          <h4 class="settings-section-title">🚀 Inicio del Sistema</h4>
+          <label class="toggle-row">
+            <div class="toggle-info">
+              <span class="toggle-label">Iniciar con Windows</span>
+              <span class="toggle-desc">El bot se abrirá automáticamente cuando enciendas el PC.</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="autoLaunchToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </label>
+        </div>
+
+        <!-- SUPABASE -->
+        <div class="settings-section">
+          <h4 class="settings-section-title">🗄️ Supabase (Base de Datos)</h4>
+          <label class="field-label">URL del Proyecto</label>
+          <input type="text" id="supUrl" placeholder="https://xxx.supabase.co">
+          
+          <label class="field-label">Anon Key</label>
+          <input type="password" id="supKey" placeholder="ey...">
+        </div>
+
+        <button type="submit" class="save-btn">💾 Guardar Cambios</button>
       </form>
     </div>
   </div>
