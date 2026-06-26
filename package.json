@@ -53,7 +53,7 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "MagnusCode",
+      "owner": "juanpps",
       "repo": "bot-casalamad",
       "private": false
     }
