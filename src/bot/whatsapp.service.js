@@ -3,6 +3,8 @@
 // Arquitectura inspirada en bug-mate (github.com/ignaciobecher/bug-mate)
 
 const { Client, LocalAuth, MessageTypes } = require('whatsapp-web.js');
+const { app } = require('electron');
+const path = require('path');
 const QRCode = require('qrcode');
 const { createClient } = require('@supabase/supabase-js');
 const { customAlphabet } = require('nanoid');
@@ -43,19 +45,16 @@ async function crearPedido(pedidoData) {
   const trackingUrl = `https://casalamad.vercel.app/tracking/${token}`;
   const hoy = new Date().toISOString().split('T')[0];
 
-  let esFraude = false;
+  // Validación de precios (solo informativa, no bloquea pedidos)
   try {
     const { data: dbPlatos } = await supabase.from('platos').select('nombre, porciones');
     if (dbPlatos) {
       for (const item of pedidoData.items) {
-        // Encontramos el plato por coincidencia parcial o total
         const platoDb = dbPlatos.find(p => item.nombre.toLowerCase().includes(p.nombre.toLowerCase()) || p.nombre.toLowerCase().includes(item.nombre.toLowerCase()));
         if (platoDb && Array.isArray(platoDb.porciones)) {
-          // Buscamos si alguno de los precios coincide
           const matchPrecio = platoDb.porciones.some(porc => Number(porc.priceNum) === Number(item.precio_unitario));
           if (!matchPrecio) {
-            esFraude = true;
-            break;
+            console.log(`[BOT] ⚠ Precio no coincide exacto para "${item.nombre}" ($${item.precio_unitario}) vs DB "${platoDb.nombre}". Puede ser diferencia de porción.`);
           }
         }
       }
@@ -81,7 +80,7 @@ async function crearPedido(pedidoData) {
       tracking_url: trackingUrl,
       tracking_activo: true,
       wa_tracking_enviado: false,
-      estado: esFraude ? 'fraude_potencial' : 'confirmado'
+      estado: 'confirmado'
     })
     .select()
     .single();
@@ -89,7 +88,7 @@ async function crearPedido(pedidoData) {
   // Adjuntar notas al objeto retornado para mostrarlas en el panel (no se persisten en BD)
   const pedido = data ? { ...data, notas } : null;
 
-  return { pedido, trackingUrl, error, esFraude };
+  return { pedido, trackingUrl, error, esFraude: false };
 }
 
 // ── Parser de pedidos del menú digital ───────────────────────────────────────
@@ -284,18 +283,34 @@ function setBotState(status, message, qr = null) {
   if (emitter) emitter('bot-state-update', { status, message, qr });
 }
 
+const fs = require('fs');
+
+function getBrowserExecutablePath() {
+  const paths = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+  ];
+  for (const p of paths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null; // fallback
+}
+
 function startWhatsAppBot(emitToPanel) {
   emitter = emitToPanel;
   setBotState('Iniciando', '🔄 Iniciando bot de WhatsApp...');
 
+  const sessionPath = path.join(app.getPath('userData'), '.wwebjs_auth');
   waClient = new Client({
-    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+    authStrategy: new LocalAuth({ dataPath: sessionPath }),
     webVersionCache: {
       type: 'remote',
       remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
     },
     puppeteer: {
       headless: true,
+      executablePath: getBrowserExecutablePath() || undefined,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--no-zygote']
     }
   });
@@ -353,7 +368,11 @@ function startWhatsAppBot(emitToPanel) {
     }
   });
 
-  waClient.initialize();
+  console.log('[BOT] Ejecutando waClient.initialize()...');
+  waClient.initialize().catch(error => {
+    console.error('[BOT] CRÍTICO: Fallo asíncrono al inicializar WhatsApp Client:', error);
+    setBotState('Error', '❌ Falló al arrancar el motor de Chrome. Revisa el archivo debug.log.');
+  });
 }
 
 function getWaClient() {
