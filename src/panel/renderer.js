@@ -57,6 +57,31 @@ window.electronAPI.onBotState((state) => {
   }
 });
 
+// ── Controles de Chat Activo (Despausar) ───────────────────────────────────
+window.electronAPI.onActiveChats((chats) => {
+  const container = document.getElementById('activeChatsList');
+  if (!container) return;
+  
+  if (!chats || chats.length === 0) {
+    container.innerHTML = '<span class="empty-chats">Ninguno</span>';
+    return;
+  }
+
+  container.innerHTML = '';
+  chats.forEach(waNumber => {
+    const btn = document.createElement('button');
+    btn.className = 'resume-chat-btn';
+    btn.title = 'Reanudar bot para este chat';
+    btn.innerHTML = `<span class="icon">▶️</span> ${waNumber}`;
+    btn.onclick = () => {
+      if(confirm(`¿Reanudar el bot para el número ${waNumber}?`)) {
+        window.electronAPI.resumeSender(`${waNumber}@c.us`);
+      }
+    };
+    container.appendChild(btn);
+  });
+});
+
 // ── Controles del Bot ───────────────────────────────────────────────────────
 pauseBotBtn.addEventListener('click', () => {
   window.electronAPI.pauseBot();

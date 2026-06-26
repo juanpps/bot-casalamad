@@ -1,8 +1,31 @@
 const { app, BrowserWindow, ipcMain, Menu, Tray } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
 const { autoUpdater } = require('electron-updater');
+
+// ── Sistema de Logs para Diagnóstico ──────────────────────────────────────────
+const logFile = path.join(app.getPath('userData'), 'debug.log');
+const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+console.log = (...args) => {
+  const msg = `[INFO] ${new Date().toISOString()} - ${args.join(' ')}\n`;
+  logStream.write(msg);
+  originalConsoleLog(...args);
+};
+
+console.error = (...args) => {
+  const msg = `[ERROR] ${new Date().toISOString()} - ${args.join(' ')}\n`;
+  logStream.write(msg);
+  originalConsoleError(...args);
+};
+
+console.log('=== APP INICIADA (v1.0.3) ===');
+console.log('Directorio de Logs:', logFile);
+
 const { startWhatsAppBot, getWaClient, pauseSender, resumeSender, setGlobalPause, logoutWhatsApp } = require('./src/bot/whatsapp.service');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -233,7 +256,6 @@ ipcMain.on('logout-whatsapp', async () => {
 });
 
 // ── IPC: Archivar historial ──────────────────────────────────────────────────
-const fs = require('fs');
 
 ipcMain.handle('archive-history', async () => {
   const cfg = store.get('settings') || {};

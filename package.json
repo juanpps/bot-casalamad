@@ -1,6 +1,6 @@
 {
   "name": "casalamad-bot",
-  "version": "1.0.1",
+  "version": "1.0.5",
   "description": "Panel Administrativo — Casa LAMAD WhatsApp Bot",
   "main": "main.js",
   "scripts": {
