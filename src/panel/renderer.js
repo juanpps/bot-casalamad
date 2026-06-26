@@ -282,14 +282,26 @@ document.getElementById('ackAdvisorBtn')?.addEventListener('click', () => {
 
 // ── Archivar Historial ────────────────────────────────────────────────────────
 document.getElementById('archiveBtn')?.addEventListener('click', async () => {
-  if (confirm('¿Estás seguro de que deseas archivar todos los pedidos anteriores a hoy?\nEsto los guardará localmente y los eliminará de la base de datos para ahorrar espacio.')) {
+  if (confirm('¿Estás seguro de archivar todos los pedidos pasados? Se guardarán en tu PC y se borrarán de Supabase para ahorrar espacio.')) {
     const success = await window.electronAPI.archiveHistory();
     if (success) {
-      alert('✅ Historial archivado correctamente.\nLos pedidos se guardaron en la carpeta del sistema y se limpiaron de la nube.');
-      loadOrders();
+      alert('✅ Historial archivado correctamente.');
+      loadOrders(); // recargar
     } else {
-      alert('❌ Hubo un error al archivar el historial. Revisa los logs.');
+      alert('❌ Hubo un error al archivar el historial.');
     }
+  }
+});
+
+document.getElementById('logoutBtn')?.addEventListener('click', () => {
+  if (confirm('¿Estás seguro de cerrar la sesión de WhatsApp? El bot se desconectará y tendrás que volver a escanear el QR.')) {
+    window.electronAPI.logoutWhatsApp();
+  }
+});
+
+document.getElementById('shutdownBtn')?.addEventListener('click', () => {
+  if (confirm('¿Seguro que deseas apagar el bot?')) {
+    window.electronAPI.shutdownBot();
   }
 });
 

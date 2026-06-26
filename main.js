@@ -3,7 +3,7 @@ const path = require('path');
 const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
 const { autoUpdater } = require('electron-updater');
-const { startWhatsAppBot, getWaClient, pauseSender, resumeSender, setGlobalPause } = require('./src/bot/whatsapp.service');
+const { startWhatsAppBot, getWaClient, pauseSender, resumeSender, setGlobalPause, logoutWhatsApp } = require('./src/bot/whatsapp.service');
 const { createClient } = require('@supabase/supabase-js');
 
 globalThis.WebSocket = require('ws');
@@ -223,6 +223,13 @@ ipcMain.on('shutdown-bot', async () => {
     } catch (err) {}
   }
   app.quit();
+});
+
+ipcMain.on('logout-whatsapp', async () => {
+  await logoutWhatsApp();
+  // Reiniciar la app o relanzarla para que pida el QR
+  app.relaunch();
+  app.exit(0);
 });
 
 // ── IPC: Archivar historial ──────────────────────────────────────────────────

@@ -401,4 +401,22 @@ function setGlobalPause(isPaused) {
   setBotState(isPaused ? 'Pausado' : 'Conectado', isPaused ? '⏸ Bot Pausado Globalmente' : '🟢 Conectado a WhatsApp');
 }
 
-module.exports = { startWhatsAppBot, getWaClient, pauseSender, resumeSender, setGlobalPause };
+async function logoutWhatsApp() {
+  if (waClient) {
+    console.log('[BOT] Cerrando sesión de WhatsApp...');
+    try {
+      await waClient.logout();
+    } catch (e) {
+      console.error('[BOT] Error al cerrar sesión:', e);
+    }
+  }
+}
+
+module.exports = {
+  startWhatsAppBot,
+  getWaClient,
+  pauseSender,
+  resumeSender,
+  setGlobalPause,
+  logoutWhatsApp
+};
