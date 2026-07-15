@@ -220,7 +220,10 @@ ipcMain.handle('update-order-status', async (_, { id, status, waNumber, tracking
 
     if (msg) {
       try {
-        await wa.sendMessage(jid, msg);
+        // Fix for "No LID for user" in whatsapp-web.js
+        const numberId = await wa.getNumberId(waNumber);
+        const targetJid = numberId ? numberId._serialized : jid;
+        await wa.sendMessage(targetJid, msg);
       } catch (e) {
         console.error('[MAIN] Error enviando WA:', e.message);
       }

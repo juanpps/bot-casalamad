@@ -4,39 +4,33 @@ Este documento detalla las fases y tareas pendientes para llevar el bot de Whats
 
 ---
 
-## 1. Fase 2: Lógica del Bot, Validaciones y Flujo (En proceso)
+## 1. Fase 2: Flujo Conversacional 100% WhatsApp (Nuevo Enfoque)
 
-Esta fase se enfoca en la inteligencia del bot, seguridad en los pedidos y experiencia del usuario en WhatsApp.
+Esta fase reemplaza el uso del menú digital web. Toda la interacción, visualización del menú y toma de pedidos se hará directamente en el chat mediante texto y opciones numeradas (ya que no se usa la API oficial para botones).
 
-*   [x] **Validación Anti-Fraude (Precios):**
-    *   **Problema actual:** El bot confía en el total calculado por el mensaje prellenado enviado desde el carrito.
-    *   **Solución:** Modificar `whatsapp.service.js`. Cuando el bot reciba un pedido, extraerá el ID/nombre de los productos y validará sus precios directamente consultando la base de datos de Supabase. Si el total del cliente no coincide con la base de datos, el pedido será marcado como `fraude_potencial` y requerirá revisión manual.
-*   [x] **Rediseño del Mensaje de Bienvenida:**
-    *   **Problema actual:** El mensaje inicial es genérico.
-    *   **Solución:** Crear un saludo amigable y enfocado a la conversión. El flujo principal será incitar a **Ver Menú y Pedir**.
-*   [x] **Manejo de Asesor / Preguntas Frecuentes:**
+*   [ ] **Sistema de Estado por Sesión (Carrito en Memoria):**
+    *   **Solución:** Implementar un gestor de estados para cada número de teléfono. El bot debe recordar en qué paso está el cliente (viendo categorías, seleccionando cantidad, ingresando dirección, etc.) y guardar los items seleccionados temporalmente.
+*   [ ] **Integración del Menú con Supabase:**
+    *   **Solución:** El bot consultará directamente a Supabase para obtener las categorías, productos y precios activos. Formateará esta información en mensajes de texto legibles con opciones numeradas (Ej: `1. 🍔 Hamburguesas`).
+*   [ ] **Flujo de Toma de Pedidos:**
+    *   **Paso 1:** Saludo y categorías.
+    *   **Paso 2:** Selección de productos y cantidades.
+    *   **Paso 3:** Confirmación del carrito y solicitud de datos (Dirección y Método de pago).
+    *   **Paso 4:** Registro del pedido final en Supabase y notificación al panel.
+*   [ ] **Manejo de Asesor / Preguntas Frecuentes:**
     *   **Solución:** Incluir opciones simples (FAQ) como horarios o ubicación.
-    *   Si el cliente solicita "asesor", el bot se **pausará automáticamente para ese número**.
-    *   El bot emitirá un evento IPC `advisor-alert` al panel (activando la modal roja y el sonido de triple timbre que ya diseñamos).
-*   [x] **Persistencia y Estado de Sesión en UI:**
-    *   **Problema actual:** Aunque Puppeteer guarda sesión, la UI no permite gestionar las conversaciones activas.
-    *   **Solución:** Mostrar en la barra superior del panel administrativo las **Conversaciones Activas**. Añadir la capacidad de Pausar/Despausar el bot **manualmente** para un cliente específico directamente desde el panel.
+    *   Si el cliente solicita "asesor" (o elige la opción), el bot se **pausará automáticamente para ese número**.
+    *   El bot emitirá un evento IPC `advisor-alert` al panel (activando la modal roja y el sonido de triple timbre).
 
 ---
 
-## 2. Fase 3: Sistema de Tracking Integrado al Menú Digital
+## 2. Fase 3: Notificaciones de Tracking vía WhatsApp
 
-El seguimiento del pedido se integrará en el frontend React existente (`menu-casalmad`) en lugar de crear un proyecto web nuevo.
+Dado que descartamos la página web de seguimiento, el cliente será informado del estado de su pedido mediante mensajes automáticos de WhatsApp.
 
-*   [x] **Generación de URL de Seguimiento Correcta:**
-    *   **Solución:** En el backend del bot, en lugar de generar un enlace dummy o 404, el bot construirá la URL apuntando al menú digital: `https://[URL-MENU-DIGITAL]/tracking?id=[ID_PEDIDO]`.
-*   [x] **Estados de Tracking Diferenciados:**
-    *   **Solución:** Asegurar que los botones del panel envíen estados distintos según el tipo de pedido:
-        *   **Domicilio:** `confirmado` ➔ `en_preparacion` ➔ `en_camino` ➔ `entregado`.
-        *   **Recoger:** `confirmado` ➔ `en_preparacion` ➔ `listo_recoger` ➔ `entregado`.
-*   [x] **Desarrollo Frontend Tracking (En Proyecto React):**
-    *   Crear la ruta `/tracking` en el repositorio del menú digital.
-    *   Esta página leerá el ID de la URL, consultará Supabase en tiempo real (`subscribe()`) y dibujará una línea de tiempo visual con los estados descritos anteriormente.
+*   [ ] **Notificaciones de Estado:**
+    *   **Solución:** Cuando el administrador cambie el estado del pedido en el panel (Confirmado ➔ En Preparación ➔ En Camino), el bot enviará automáticamente un mensaje al cliente informando la actualización.
+    *   Ejemplo: *"¡Tu pedido ya está en camino! 🛵 El repartidor llegará pronto."*
 
 ---
 

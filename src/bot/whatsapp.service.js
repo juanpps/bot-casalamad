@@ -2,7 +2,7 @@
 // Basado en whatsapp-web.js (Puppeteer) — sin problemas de ESM
 // Arquitectura inspirada en bug-mate (github.com/ignaciobecher/bug-mate)
 
-const { Client, LocalAuth, MessageTypes } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageTypes, MessageMedia } = require('whatsapp-web.js');
 const { app } = require('electron');
 const path = require('path');
 const QRCode = require('qrcode');
@@ -139,22 +139,49 @@ function parseCartMessage(text) {
   } catch (e) { console.error('[PARSER]', e); return null; }
 }
 
-// ── Anti-Ban & Typing Simulation ──────────────────────────────────────────────
+// ── Anti-Ban Suite ─────────────────────────────────────────────────────────────
+const _lastReply = new Map(); // jid -> timestamp, para rate limiting
+
+async function humanDelay(min = 800, max = 2500) {
+  const ms = Math.floor(Math.random() * (max - min + 1)) + min;
+  return new Promise(res => setTimeout(res, ms));
+}
+
 async function replyWithDelay(message, text) {
+  const jid = message.from;
+
+  // 1. Rate limiting: mínimo 1.5s entre respuestas al mismo chat
+  const lastTime = _lastReply.get(jid) || 0;
+  const gap = Date.now() - lastTime;
+  if (gap < 1500) await new Promise(res => setTimeout(res, 1500 - gap));
+
   try {
+    // 2. Marcar mensaje como leído (simula comportamiento humano)
+    await message.getChat().then(c => c.sendSeen()).catch(() => {});
+
+    // 3. Pausa inicial breve antes de empezar a "escribir"
+    await humanDelay(400, 900);
+
+    // 4. Mostrar indicador de escritura
     const chat = await message.getChat();
-    // Enviar estado de escribiendo
     await chat.sendStateTyping();
-    // Retraso dinámico: 30ms por carácter, con un mínimo de 1.5s y máximo de 4s
-    const delayMs = Math.min(Math.max(text.length * 30, 1500), 4000);
-    await new Promise(res => setTimeout(res, delayMs));
-    // Enviar mensaje
+
+    // 5. Retraso proporcional al largo del texto + jitter aleatorio
+    const baseDelay = Math.min(Math.max(text.length * 28, 1200), 4500);
+    const jitter = Math.floor(Math.random() * 800);
+    await new Promise(res => setTimeout(res, baseDelay + jitter));
+
+    // 6. Enviar respuesta
     await message.reply(text);
   } catch (err) {
-    // Fallback si falla el getChat o el typing state
-    await message.reply(text);
+    // Fallback silencioso si falla el typing state
+    await humanDelay(1000, 2000);
+    try { await message.reply(text); } catch (e) { console.error('[BOT] Error enviando mensaje:', e.message); }
   }
+
+  _lastReply.set(jid, Date.now());
 }
+
 
 // ── Manejador de mensajes ─────────────────────────────────────────────────────
 async function handleMessage(client, message, emitToPanel) {
@@ -174,102 +201,212 @@ async function handleMessage(client, message, emitToPanel) {
   const text = message.body?.trim() || '';
   if (!text && message.type !== MessageTypes.IMAGE) return;
 
-  // 1. Detectar mensaje de pedido del carrito
+  // 1. Detectar mensaje de pedido del carrito (Legacy - por si alguien usa link viejo)
   const order = parseCartMessage(text);
   if (order) {
     order.cliente_wa = waNumber;
     const { pedido, trackingUrl, error, esFraude } = await crearPedido(order);
-
     if (error || !pedido) {
-      console.error('[BOT] Error Supabase:', error);
       await replyWithDelay(message, '❌ Hubo un error al registrar tu pedido. Por favor intenta de nuevo o escríbenos directamente.');
       return;
     }
-
     emitToPanel('order:new', pedido);
     setSession(jid, { status: 'DONE', data: {} });
-    
-    if (esFraude) {
-      await replyWithDelay(message,
-        `⚠️ *Tu pedido requiere revisión manual.*\n\n` +
-        `Hemos detectado una inconsistencia en los precios. Un asesor revisará tu pedido en breve y se pondrá en contacto contigo.`
-      );
-      // Pausar y alertar asesor
-      pauseSender(jid, waNumber);
-      emitToPanel('advisor-alert', { waNumber: waNumber, msg: 'Inconsistencia de precios en pedido del carrito.' });
-    } else {
-      await replyWithDelay(message,
-        `✅ *¡Pedido #${String(pedido.numero).padStart(3, '0')} confirmado!* 🥢\n\n` +
-        `Hola ${order.cliente_nombre}, recibimos tu pedido con *${order.items.length} plato(s)*.\n\n` +
-        `🔗 Sigue el estado en tiempo real:\n${trackingUrl}\n\n` +
-        `¡Gracias por elegir Casa LAMAD! 🙏`
-      );
-    }
+    await replyWithDelay(message, `✅ *¡Pedido confirmado!* 🥢\n\nHola ${order.cliente_nombre}, recibimos tu pedido.\n\n🔗 Sigue el estado en tiempo real:\n${trackingUrl}`);
     return;
   }
 
-  // 2. Menú de opciones
+  // 2. State Machine para Toma de Pedidos 100% WhatsApp
   const sess = getSession(jid);
   const txt = text.toLowerCase();
+  let data = sess.data || {};
 
-  if (sess.status === 'IDLE' || sess.status === 'DONE' || txt === 'hola' || txt === 'menu' || txt === 'menú' || txt === 'inicio') {
-    setSession(jid, { status: 'MENU', data: {} });
-    await replyWithDelay(message,
-      `¡Hola! 👋 Bienvenido a *Casa LAMAD — Arroz al Wok* 🥢\n\n` +
-      `¿En qué te podemos ayudar hoy?\n\n` +
-      `*1️⃣* 🥢 Ver Menú y Hacer Pedido\n` +
-      `*2️⃣* 🛵 Rastrear mi Pedido\n` +
-      `*3️⃣* 🕘 Horarios y Ubicación\n` +
-      `*4️⃣* 👨‍🍳 Hablar con un Asesor\n\n` +
-      `_Responde con el número de la opción._`
-    );
+  // Función para obtener menú desde Supabase (Lista plana, sin categorías)
+  const getMenu = async () => {
+    const supabase = getSupabase();
+    const { data: platos } = await supabase.from('platos').select('*').eq('visible', true).order('orden');
+    return platos || [];
+  };
+
+  // Comandos globales para reiniciar
+  const isGreeting = /hola|buenas|buenos|que tal|menu|menú|inicio|quiero|pedir/i.test(txt);
+  
+  if (isGreeting && (sess.status === 'IDLE' || sess.status === 'DONE' || sess.status === 'MENU_ITEMS')) {
+    const platos = await getMenu();
+    data = { menuPlatos: platos, cart: [], tempItem: null };
+    setSession(jid, { status: 'MENU_ITEMS', data });
+    
+    // Enviar imagen del menú si existe
+    try {
+      const menuImgPath = path.join(__dirname, '../../assets/menu.png');
+      if (require('fs').existsSync(menuImgPath)) {
+        const media = MessageMedia.fromFilePath(menuImgPath);
+        await client.sendMessage(jid, media);
+      }
+    } catch (e) {
+      console.error('[BOT] Error enviando imagen del menú:', e.message || e);
+    }
+
+    let msg = `¡Hola! 👋 Bienvenido a *Casa LAMAD — Arroz al Wok* 🥢\n\n¿Qué te gustaría pedir hoy?\n_Escribe el nombre del plato o el número correspondiente:_\n\n`;
+    platos.forEach((item, index) => {
+      msg += `*${index + 1}.* ${item.nombre}\n`;
+    });
+    msg += `\n*0.* 👨‍🍳 Hablar con un Asesor`;
+    
+    await replyWithDelay(message, msg);
     return;
   }
 
-  if (sess.status === 'MENU') {
-    if (txt === '1') {
-      setSession(jid, { status: 'WAITING_ORDER' });
-      await replyWithDelay(message,
-        `¡Perfecto! 🍜 Entra al menú digital, arma tu pedido y al finalizar *envía el resumen directamente por aquí*:\n\n` +
-        `🔗 https://casalamad.vercel.app/\n\n` +
-        `_El bot lo registrará y te enviará el tracking al instante._`
-      );
-    } else if (txt === '2') {
-      await replyWithDelay(message, `🔍 Para ver el estado de tu pedido, usa el enlace de tracking que te enviamos al confirmar.\n\nSi no lo tienes, escríbenos tu nombre y número de pedido.`);
-      setSession(jid, { status: 'IDLE' });
-    } else if (txt === '3') {
-      await replyWithDelay(message,
-        `🕘 *Horario de Atención:*\n11:00 am – 10:00 pm (Lunes a Domingo)\n\n` +
-        `📍 *Ubicación:*\nCra 24e #14-08 · Sector 25 Manzanares\n` +
-        `🔗 https://maps.app.goo.gl/JERm3cEdqyYrPNAK7`
-      );
-      setSession(jid, { status: 'IDLE' });
-    } else if (txt === '4') {
+  // Si está inactivo o terminó, incitar a escribir hola
+  if (sess.status === 'IDLE' || sess.status === 'DONE') {
+    await replyWithDelay(message, `¡Hola! 😊 Escribe *hola* o *menú* para ver nuestras opciones y hacer un pedido.`);
+    return;
+  }
+
+  if (sess.status === 'MENU_ITEMS') {
+    if (txt === '0' || txt.includes('asesor') || txt.includes('humano')) {
       await replyWithDelay(message, `👨‍🍳 ¡Claro! Un asesor tomará el control en breve. ¡Gracias por tu paciencia!`);
-      setSession(jid, { status: 'HUMAN' });
+      setSession(jid, { status: 'HUMAN', data: {} });
       pauseSender(jid, waNumber);
       emitToPanel('advisor-alert', { waNumber: waNumber, msg: 'El cliente solicitó atención de un asesor.' });
+      return;
+    }
+
+    let itemIndex = parseInt(txt) - 1;
+    if (isNaN(itemIndex) && data.menuPlatos) {
+      itemIndex = data.menuPlatos.findIndex(i => txt.includes(i.nombre.toLowerCase()) || i.nombre.toLowerCase().includes(txt));
+    }
+
+    if (itemIndex >= 0 && data.menuPlatos && itemIndex < data.menuPlatos.length) {
+      const item = data.menuPlatos[itemIndex];
+      data.tempItem = { plato: item };
+      
+      if (item.porciones && item.porciones.length > 0) {
+        setSession(jid, { status: 'MENU_PORCIONES', data });
+        let msg = `Has seleccionado *${item.nombre}*.\n_Elige el tamaño/porción:_\n\n`;
+        item.porciones.forEach((p, idx) => {
+          msg += `*${idx + 1}.* ${p.label} - ${p.priceStr}\n`;
+        });
+        msg += `\n*0.* Cancelar y volver`;
+        await replyWithDelay(message, msg);
+      } else {
+        await replyWithDelay(message, `Elegiste *${item.nombre}*. ¿Qué cantidad deseas? (Escribe el número, ej: 1)`);
+        data.tempItem.porcion = { label: 'Única', priceNum: 0, priceStr: '$0' }; // fallback temporal
+        setSession(jid, { status: 'MENU_CANTIDAD', data });
+      }
     } else {
-      await replyWithDelay(message, `Por favor responde con un número del *1* al *4*. 😊`);
+      await replyWithDelay(message, `⚠️ No entendí tu selección. Por favor responde con un número válido de producto.`);
     }
     return;
   }
 
-  if (sess.status === 'WAITING_ORDER') {
-    if (txt === 'menu' || txt === 'menú' || txt === 'inicio' || txt === 'hola') {
-      setSession(jid, { status: 'IDLE' });
-      await replyWithDelay(message, `¡Claro! Volvemos al inicio 😊`);
+  if (sess.status === 'MENU_PORCIONES') {
+    if (txt === '0') {
+      setSession(jid, { status: 'MENU_ITEMS', data });
+      await replyWithDelay(message, `❌ Selección cancelada. Elige otro producto de la categoría, o *0* para volver a inicio.`);
+      return;
+    }
+    
+    const pIndex = parseInt(txt) - 1;
+    const porciones = data.tempItem.plato.porciones;
+    if (!isNaN(pIndex) && pIndex >= 0 && pIndex < porciones.length) {
+      data.tempItem.porcion = porciones[pIndex];
+      setSession(jid, { status: 'MENU_CANTIDAD', data });
+      await replyWithDelay(message, `Excelente. ¿Cuántas unidades de *${data.tempItem.plato.nombre} (${data.tempItem.porcion.label})* deseas? (Escribe un número, ej: 2)`);
     } else {
-      await replyWithDelay(message,
-        `⏳ Estoy esperando el resumen de tu pedido desde el menú.\n\n` +
-        `🔗 https://casalamad.vercel.app/\n\n` +
-        `Escribe *menú* para volver al inicio.`
-      );
+      await replyWithDelay(message, `⚠️ Responde con el número del tamaño, o *0* para cancelar.`);
     }
     return;
   }
 
-  // Catch-all
+  if (sess.status === 'MENU_CANTIDAD') {
+    const qty = parseInt(txt);
+    if (!isNaN(qty) && qty > 0) {
+      const cartItem = {
+        nombre: `${data.tempItem.plato.nombre} (${data.tempItem.porcion.label})`,
+        cantidad: qty,
+        precio_unitario: Number(data.tempItem.porcion.priceNum),
+        subtotal: Number(data.tempItem.porcion.priceNum) * qty
+      };
+      if (!data.cart) data.cart = [];
+      data.cart.push(cartItem);
+      data.tempItem = null;
+      
+      setSession(jid, { status: 'MENU_MAS', data });
+      await replyWithDelay(message, `✅ Añadido al carrito: *${qty}x ${cartItem.nombre}*\n\n¿Deseas agregar algo más?\n*1.* Sí, seguir viendo el menú\n*2.* No, finalizar mi pedido`);
+    } else {
+      await replyWithDelay(message, `⚠️ Por favor escribe una cantidad válida (Ej: 1).`);
+    }
+    return;
+  }
+
+  if (sess.status === 'MENU_MAS') {
+    if (txt === '1') {
+      setSession(jid, { status: 'MENU_ITEMS', data });
+      let msg = `_Menú disponible:_\n\n`;
+      data.menuPlatos.forEach((item, index) => {
+        msg += `*${index + 1}.* ${item.nombre}\n`;
+      });
+      await replyWithDelay(message, msg);
+    } else if (txt === '2') {
+      let total = data.cart.reduce((sum, item) => sum + item.subtotal, 0);
+      data.total = total;
+      setSession(jid, { status: 'CHECKOUT_DIR', data });
+      await replyWithDelay(message, `Perfecto. Tu total actual es *$${total.toLocaleString('es-CO')}*.\n\nPara enviártelo, por favor escribe tu *dirección completa* (Ej: Calle 123 #45-67 Barrio Centro) o escribe *RECOGER* si lo buscas en el local.`);
+    } else {
+      await replyWithDelay(message, `⚠️ Responde *1* para seguir pidiendo o *2* para finalizar.`);
+    }
+    return;
+  }
+
+  if (sess.status === 'CHECKOUT_DIR') {
+    data.direccion = text;
+    data.tipo_entrega = text.toUpperCase().includes('RECOGER') ? 'recogida' : 'domicilio';
+    setSession(jid, { status: 'CHECKOUT_PAGO', data });
+    await replyWithDelay(message, `¡Anotado! 📝\n\n¿Cuál será tu método de pago?\n*1.* Efectivo\n*2.* Transferencia (Nequi/Daviplata/Bancolombia)`);
+    return;
+  }
+
+  if (sess.status === 'CHECKOUT_PAGO') {
+    if (txt === '1' || txt === '2') {
+      data.notas = txt === '1' ? 'Pago en Efectivo' : 'Pago por Transferencia';
+      setSession(jid, { status: 'CHECKOUT_NOMBRE', data });
+      await replyWithDelay(message, `Casi listos. Por favor, escribe tu *Nombre* para el pedido:`);
+    } else {
+      await replyWithDelay(message, `⚠️ Selecciona *1* (Efectivo) o *2* (Transferencia).`);
+    }
+    return;
+  }
+
+  if (sess.status === 'CHECKOUT_NOMBRE') {
+    data.cliente_nombre = text;
+    
+    // Crear el objeto del pedido final
+    const finalOrder = {
+      cliente_nombre: data.cliente_nombre,
+      cliente_wa: waNumber,
+      tipo_entrega: data.tipo_entrega,
+      direccion: data.direccion,
+      items: data.cart,
+      subtotal: data.total,
+      total: data.total,
+      notas: data.notas
+    };
+
+    const { pedido, error } = await crearPedido(finalOrder);
+
+    if (error || !pedido) {
+      await replyWithDelay(message, `❌ Ocurrió un error al guardar tu pedido. Por favor avísanos o intenta escribir 'menu' nuevamente.`);
+    } else {
+      emitToPanel('order:new', pedido);
+      await replyWithDelay(message, `✅ *¡Pedido #${String(pedido.numero).padStart(3, '0')} Confirmado!* 🚀\n\nResumen:\n${data.cart.map(i => `▪ ${i.cantidad}x ${i.nombre}`).join('\n')}\n\n*Total:* $${data.total.toLocaleString('es-CO')}\n*Dirección:* ${data.direccion}\n\nTe avisaremos por aquí cuando tu pedido esté en camino. ¡Gracias! 🥢`);
+    }
+    
+    setSession(jid, { status: 'DONE', data: {} });
+    return;
+  }
+
+  // Fallback final
   await replyWithDelay(message, `¡Hola! 😊 Escribe *hola* o *menú* para ver las opciones.`);
 }
 
